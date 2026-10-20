@@ -1,0 +1,11 @@
+confluent_cloud_api_key    = "XXXXXXXXXXXXXXXX"
+confluent_cloud_api_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+prefix = "myname"
+
+# Optional overrides
+# cloud            = "AZURE"
+# primary_region   = "westeurope"
+# secondary_region = "northeurope"
+# cku              = 2
+# deploy_links     = true

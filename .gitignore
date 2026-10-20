@@ -1,0 +1,29 @@
+# Terraform state (contains API key secrets)
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+crash.*.log
+
+# Variable files with credentials
+terraform.tfvars
+*.auto.tfvars
+*.tfvars.json
+.terraform.lock.hcl
+
+# Local overrides and plans
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfplan
+tfplan
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+env.privatedemo.env
+demo.env
+transparent-failover/

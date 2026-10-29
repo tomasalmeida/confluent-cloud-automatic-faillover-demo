@@ -1,31 +1,94 @@
 # Confluent Cloud DR Automatic Failover: Terraform
 
-Deploys what [danjrichards/transparent-failover](https://github.com/danjrichards/transparent-failover) needs on the Confluent side, using **public networking** (no Private Link):
+Terraform for the Confluent Cloud side of [danjrichards/transparent-failover](https://github.com/danjrichards/transparent-failover), using **public networking** (no Private Link, no jump-box VM). It builds two Dedicated clusters linked in both directions, plus a switchover pair and a **global bootstrap URL**. Clients that use that URL fail over without any change to their connection config.
 
-- Environment (Stream Governance Essentials)
-- Primary: Dedicated **single-zone** cluster (`westeurope`); secondary: Dedicated **multi-zone** cluster (`northeurope`), same CKUs
-- Service accounts: `dr-link-sa` (CloudClusterAdmin on both clusters), `dr-demo-app-sa` (client), `dr-demo-admin-sa` (EnvironmentAdmin)
-- API keys: cluster-scoped keys for the link (the cluster link API rejects Global keys), Global key for the app (cluster-scoped keys can't fail over), Cloud API key for the Switchover/Metrics APIs
-- Client RBAC on both clusters (topic `purchases`, group `dr-demo-consumer`)
-- Demo topic `purchases` (primary) and `demo.env` for the app
-- With `deploy_links = true`: bidirectional cluster link on both sides, switchover pair, public switchover endpoint, and the global bootstrap URL output
+> **Early Access.** DR automatic failover is an Early Access feature. Use it for dev/test only.
+> Docs: [automatic failover tutorial](https://docs.confluent.io/cloud/current/multi-cloud/cluster-linking/dr-automatic-failover-tutorial.html), [DR failover](https://docs.confluent.io/cloud/current/multi-cloud/cluster-linking/dr-failover.html).
 
-Docs: [automatic failover tutorial](https://docs.confluent.io/cloud/current/multi-cloud/cluster-linking/dr-automatic-failover-tutorial.html), [DR failover](https://docs.confluent.io/cloud/current/multi-cloud/cluster-linking/dr-failover.html). The feature is Early Access, so use dev/test only.
+**Contents:** [Architecture](#architecture) · [Prerequisites](#prerequisites) · [Quick start](#quick-start) · [Configuration](#configuration) · [Outputs](#outputs) · [Run the demo app](#run-the-demo-app) · [Failover operations](#failover-operations) · [Destroy](#destroy) · [Troubleshooting](#troubleshooting)
 
-## Use
+## Architecture
 
-```bash
-cp terraform.tfvars.example terraform.tfvars   # add a Cloud API key (OrgAdmin/EnvAdmin)
-terraform init
-terraform apply
-# also writes demo.env for the demo app
+```
+                      Confluent Cloud environment (Stream Governance Essentials)
+
+   ┌───────────────────────────┐   cluster link (both directions)   ┌───────────────────────────┐
+   │ Primary: Dedicated,       │ ◄────────────────────────────────► │ Secondary: Dedicated,     │
+   │ single-zone, westeurope   │                                    │ multi-zone, northeurope   │
+   │ topic: purchases          │ ───── auto-created mirror ───────► │ mirror: purchases         │
+   └─────────────▲─────────────┘                                    └─────────────▲─────────────┘
+                 │                                                                │
+                 └────────────── switchover pair + public endpoint ───────────────┘
+                                              ▲
+                                    global bootstrap URL
+                                  (demo app / your clients)
 ```
 
-If the pair step fails because the clusters aren't ready, re-run `terraform apply`. The secondary must have no clients or consumer groups when the pair is created.
+### What gets created
 
-## Deploy the demo app
+| Area | Resources |
+| --- | --- |
+| Environment | One environment with Stream Governance Essentials |
+| Clusters | Primary: Dedicated **single-zone** (`westeurope`). Secondary: Dedicated **multi-zone** (`northeurope`). Same CKUs on both. |
+| Identities | `dr-link-sa` (CloudClusterAdmin on both clusters), `dr-demo-app-sa` (client), `dr-demo-admin-sa` (EnvironmentAdmin) |
+| API keys | Cluster-scoped keys for the link (the cluster link API rejects Global keys). A Global key for the app (cluster-scoped keys can't fail over). A Cloud API key for the Switchover and Metrics APIs. |
+| RBAC | Client access on both clusters (topic `purchases`, group `dr-demo-consumer`) |
+| Demo | Topic `purchases` on the primary (mirrored by the link) and a `demo.env` file for the app |
+| DR wiring (`deploy_links = true`) | Cluster links on both sides, switchover pair, public switchover endpoint, global bootstrap URL |
 
-`terraform apply` also creates the `purchases` topic on the primary (mirrored to the secondary by the link) and writes `demo.env` (gitignored, mode 0600) with every variable `demo-app/config.js` reads, including the global bootstrap URL and the app/Cloud API keys. The demo producer generates its own data, so the repo's datagen connector isn't needed. Public networking means no jump-box VM: run the app locally.
+## Prerequisites
+
+- [Terraform](https://developer.hashicorp.com/terraform/install) (see [versions.tf](versions.tf) for the required version and provider).
+- A Confluent Cloud **Cloud API key** with OrganizationAdmin or EnvironmentAdmin.
+- Access to the DR automatic failover Early Access feature for your organization.
+- To run the demo app: Node.js and `git`.
+- For the CLI operations below: the [Confluent CLI](https://docs.confluent.io/confluent-cli/current/install.html).
+
+## Quick start
+
+```bash
+cp terraform.tfvars.example terraform.tfvars   # add your Cloud API key and a prefix
+terraform init
+terraform apply                                # also writes demo.env for the demo app
+```
+
+If the pair step fails because the clusters aren't ready, re-run `terraform apply`. The secondary must have **no clients or consumer groups** when the pair is created.
+
+## Configuration
+
+Set these in `terraform.tfvars` (see [terraform.tfvars.example](terraform.tfvars.example)). The file is gitignored because it holds credentials.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `confluent_cloud_api_key` / `confluent_cloud_api_secret` | required | Cloud API key Terraform uses (sensitive) |
+| `prefix` | required | Prefix for all resource names, to avoid collisions in the org |
+| `cloud` | `AZURE` | Cloud provider for both clusters (`AWS`, `AZURE`, `GCP`) |
+| `primary_region` | `westeurope` | Region of the primary (single-zone) cluster |
+| `secondary_region` | `northeurope` | Region of the secondary (multi-zone) cluster |
+| `cku` | `2` | CKUs for **both** clusters. Must be equal and ≥ 2 (the multi-zone minimum) |
+| `deploy_links` | `true` | Create the links, switchover pair and endpoint. `false` creates only clusters, identities and keys. |
+| `environment_name` | `transparent-failover` | Environment display name |
+| `topic_name` | `purchases` | Demo topic |
+| `topic_partitions` | `6` | Partitions of the demo topic |
+| `consumer_group` | `dr-demo-consumer` | Consumer group used by the demo app |
+| `demo_port` | `3000` | Dashboard port (the app's own default, 80, needs root) |
+
+## Outputs
+
+| Output | Notes |
+| --- | --- |
+| `global_bootstrap` | Global bootstrap URL for transparent failover |
+| `primary`, `secondary` | Cluster ID, CRN, bootstrap and REST endpoints |
+| `environment_id`, `environment_crn` | Environment identifiers |
+| `switchover_pair_id`, `switchover_endpoint_id` | Needed for the failover CLI commands |
+| `demo_env` | Contents of `demo.env` (sensitive) |
+| `link_api_keys`, `app_global_api_key`, `admin_cloud_api_key` | Generated keys (sensitive) |
+
+Sensitive outputs are shown with `terraform output -json <name>` or `terraform output -raw demo_env`.
+
+## Run the demo app
+
+`terraform apply` writes `demo.env` (gitignored, mode 0600) with every variable `demo-app/config.js` reads, including the global bootstrap URL and the app and Cloud API keys. The demo producer generates its own data, so the repo's datagen connector isn't needed. With public networking you can run the app on your laptop.
 
 ```bash
 git clone https://github.com/danjrichards/transparent-failover && cd transparent-failover/demo-app
@@ -34,18 +97,26 @@ set -a; source ../../demo.env; set +a    # adjust the path to this repo's demo.e
 node server.js                            # dashboard on http://localhost:3000 (PORT in demo.env)
 ```
 
-Use the dashboard's Failover / Fail Back / Restore Standby buttons (they call the Switchover API with the admin Cloud key), or the CLI below. `terraform output -raw demo_env` prints the same file.
+The dashboard's **Failover**, **Fail Back** and **Restore Standby** buttons call the Switchover API with the admin Cloud key. `terraform output -raw demo_env` prints the same file as `demo.env`.
 
-## Not covered by Terraform
+## Failover operations
 
-- Failover, restore and failback are CLI/REST only (the dashboard buttons call the same API):
-  `confluent switchover pair failover <SW> --active-member secondary --failover-type PLANNED|UNPLANNED --environment <env>`
-- Running the app itself (`npm install`, `node server.js`), and the repo's optional datagen connector and VM/Private Link setup (not used here).
-- Schema Registry (schema linking), connectors, Flink and ksqlDB aren't failed over automatically.
+Failover, restore and failback are not managed by Terraform. Use the dashboard buttons or the CLI:
+
+```bash
+confluent switchover pair describe <SW> --environment <env>
+confluent switchover pair failover <SW> --active-member secondary \
+  --failover-type PLANNED|UNPLANNED --environment <env>
+```
+
+Not covered by this repo:
+
+- Running the app itself (`npm install`, `node server.js`), and the upstream repo's optional datagen connector and VM/Private Link setup.
+- Schema Registry (schema linking), connectors, Flink and ksqlDB. None of these fail over automatically.
 
 ## Destroy
 
-1. If you failed over, fail back so the **primary is the active member** (`confluent switchover pair describe <SW> --environment <env>`).
+1. If you failed over, fail back so the **primary is the active member**.
 2. Stop the demo app so no clients or consumer groups remain.
 3. Wait for any other Terraform run to finish, then:
 
@@ -53,11 +124,22 @@ Use the dashboard's Failover / Fail Back / Restore Standby buttons (they call th
 terraform destroy -lock-timeout=60s -refresh=false -parallelism=2
 ```
 
-`-refresh=false` avoids the provider's cluster-link read timing out (408) on a slow standby; lower parallelism does the same for delete calls. A `terraform_data.mirror_cleanup` resource promotes and deletes the mirror of the demo topic on the secondary before the link is deleted, since the link can't be deleted while it has mirror topics.
+- `-refresh=false` avoids the provider's cluster-link read timing out (408) on a slow standby.
+- Lower parallelism does the same for delete calls.
+- `terraform_data.mirror_cleanup` promotes and deletes the demo topic's mirror on the secondary before the link is deleted, because a link with mirror topics can't be deleted.
 
-### Known issues and workarounds
+## Troubleshooting
 
-**`kafka_api_key, kafka_api_secret, kafka_rest_endpoint ... should be set or not set at the same time`**
+| Symptom | Jump to |
+| --- | --- |
+| `kafka_api_key, kafka_api_secret, kafka_rest_endpoint ... should be set or not set at the same time` | [Partial `KAFKA_*` env vars](#partial-kafka_-environment-variables) |
+| `403 ... Cluster link <name> ... in use by topics` | [Link in use by mirror topics](#link-in-use-by-mirror-topics) |
+| `Auto-mirrored topic cannot be deleted` | [Auto-mirrored topic](#auto-mirrored-topic-cannot-be-deleted) |
+| `error deleting Kafka Topic ... HTTP 500` | [Topic delete returns 500](#topic-delete-returns-http-500) |
+| Stale state lock | [Stale lock](#stale-state-lock) |
+
+### Partial `KAFKA_*` environment variables
+
 The provider also reads `KAFKA_API_KEY`, `KAFKA_API_SECRET`, `KAFKA_REST_ENDPOINT` and `KAFKA_ID` from the environment, and a partial set fails validation. Clear them and retry:
 
 ```bash
@@ -65,8 +147,9 @@ unset KAFKA_API_KEY KAFKA_API_SECRET KAFKA_REST_ENDPOINT KAFKA_ID
 terraform destroy -lock-timeout=60s -refresh=false -parallelism=2
 ```
 
-**`403 ... Cluster link <name> ... in use by topics: [<topic>]`**
-Only the demo topic is cleaned up automatically. Any other mirror topic (for example one you created by hand, or one on the primary after a failover) blocks the link delete. On each cluster the error or `mirror list` points at, promote the mirror, optionally delete it, and re-run:
+### Link in use by mirror topics
+
+Only the demo topic is cleaned up automatically. Any other mirror topic blocks the link delete. Examples are one you created by hand, or one on the primary after a failover. The link exists on both clusters, so check both. On each cluster the error points at (or `mirror list` shows), promote the mirror, optionally delete it, and re-run:
 
 ```bash
 confluent kafka mirror list --link <link-name> --cluster <cluster-id> --environment <env-id>
@@ -75,9 +158,10 @@ confluent kafka topic delete <topic> --cluster <cluster-id> --environment <env-i
 terraform destroy -lock-timeout=60s -refresh=false -parallelism=2
 ```
 
-The link exists on both clusters, so check both.
+### Auto-mirrored topic cannot be deleted
 
-**`Auto-mirrored topic cannot be deleted. The topic <topic> should be excluded from auto.create.mirror.topics.filters`**
+Full error: `Auto-mirrored topic cannot be deleted. The topic <topic> should be excluded from auto.create.mirror.topics.filters`.
+
 Add an `EXCLUDE` entry for the topic on the cluster link, otherwise the link re-creates it after you delete it. The update replaces the whole filter, so keep the existing `INCLUDE` entry:
 
 ```bash
@@ -95,5 +179,20 @@ confluent kafka topic delete <topic> --cluster <cluster-id> --environment <env-i
 
 If the delete still fails because the topic is an active mirror, promote it first (see above).
 
-**Stale state lock**
+### Topic delete returns HTTP 500
+
+`error deleting Kafka Topic "<cluster>/<topic>": ... received HTTP 500 Internal Server Error` during destroy, after the retries run out. This can be a transient Confluent Cloud error, or the source topic being deleted while the link still has an active mirror of it.
+
+1. Re-run `terraform destroy`.
+2. If it persists, promote the mirror on the secondary, then destroy again:
+
+   ```bash
+   confluent kafka mirror promote <topic> --link <link-name> --cluster <secondary-cluster-id> --environment <env-id>
+   terraform destroy -lock-timeout=60s -refresh=false -parallelism=2
+   ```
+
+3. If it still fails, open a support ticket with the cluster ID and the time of the request.
+
+### Stale state lock
+
 A stale lock (`.terraform.tfstate.lock.info` with no running Terraform) can be cleared with `terraform force-unlock <ID>`.

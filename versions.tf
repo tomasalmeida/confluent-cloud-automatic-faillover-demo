@@ -7,6 +7,10 @@ terraform {
       source  = "confluentinc/confluent"
       version = ">= 2.88.0" # switchover pair/endpoint resources
     }
+    time = {
+      source  = "hashicorp/time"
+      version = ">= 0.9.0"
+    }
     local = {
       source  = "hashicorp/local"
       version = ">= 2.4.0"

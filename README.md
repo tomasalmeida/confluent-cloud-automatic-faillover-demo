@@ -136,6 +136,8 @@ terraform destroy -lock-timeout=60s -refresh=false -parallelism=2
 | `403 ... Cluster link <name> ... in use by topics` | [Link in use by mirror topics](#link-in-use-by-mirror-topics) |
 | `Auto-mirrored topic cannot be deleted` | [Auto-mirrored topic](#auto-mirrored-topic-cannot-be-deleted) |
 | `error deleting Kafka Topic ... HTTP 500` | [Topic delete returns 500](#topic-delete-returns-http-500) |
+| `switchover pair ... provisioning failed: ... remote link state has not been observed yet` | [Pair fails right after the links](#switchover-pair-fails-right-after-the-links) |
+| `409 Conflict: LKC ... is already part of switchover pair` | [Pair fails right after the links](#switchover-pair-fails-right-after-the-links) |
 | Stale state lock | [Stale lock](#stale-state-lock) |
 
 ### Partial `KAFKA_*` environment variables
@@ -192,6 +194,21 @@ If the delete still fails because the topic is an active mirror, promote it firs
    ```
 
 3. If it still fails, open a support ticket with the cluster ID and the time of the request.
+
+### Switchover pair fails right after the links
+
+Full error: `error waiting for switchover pair "<id>" to provision: ... ResourceValidationComplete=False (ValidationFailed): Cluster link <cluster>_<link> remote link state has not been observed yet, cannot verify it is available for switchover`.
+
+The Switchover service validates the cluster links when the pair is created. If it hasn't observed their remote state yet, validation fails. `time_sleep.wait_for_links` adds a 120s delay between the links and the pair to avoid this. If you still hit it, increase `create_duration` on that resource.
+
+The failed create leaves the pair in Confluent Cloud but not in Terraform state. The next `terraform apply` then fails with `409 Conflict: LKC <id> is already part of switchover pair <id>`. Delete the orphaned pair (the ID is in the first error, or in `confluent switchover pair list`) and re-apply:
+
+```bash
+confluent switchover pair delete <pair-id> --environment <env-id>
+terraform apply
+```
+
+Importing the pair is not a reliable alternative. `terraform import` returned `400 Bad Request` for this resource.
 
 ### Stale state lock
 

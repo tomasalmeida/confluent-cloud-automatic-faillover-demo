@@ -265,6 +265,19 @@ resource "confluent_cluster_link" "secondary_to_primary" {
   depends_on = [confluent_cluster_link.primary_to_secondary]
 }
 
+# The Switchover service validates the cluster links' remote state when the pair
+# is created and fails if it hasn't observed them yet, so give the links time.
+resource "time_sleep" "wait_for_links" {
+  count = var.deploy_links ? 1 : 0
+
+  create_duration = "120s"
+
+  depends_on = [
+    confluent_cluster_link.primary_to_secondary,
+    confluent_cluster_link.secondary_to_primary,
+  ]
+}
+
 # Blocks until the pair is READY_TO_FAILOVER. Secondary must have no clients.
 resource "confluent_switchover_pair" "this" {
   count = var.deploy_links ? 1 : 0
@@ -283,7 +296,7 @@ resource "confluent_switchover_pair" "this" {
     member_crn = confluent_kafka_cluster.secondary.rbac_crn
   }
 
-  depends_on = [confluent_cluster_link.secondary_to_primary]
+  depends_on = [time_sleep.wait_for_links]
 }
 
 resource "confluent_switchover_endpoint" "this" {

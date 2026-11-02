@@ -14,10 +14,16 @@ variable "environment_name" {
   default = "transparent-failover"
 }
 
-variable "cloud" {
-  description = "Cloud provider for both clusters (AWS, AZURE, GCP)."
+variable "primary_cloud" {
+  description = "Cloud provider for the primary cluster (AWS, AZURE, GCP)."
   type        = string
   default     = "AZURE"
+}
+
+variable "secondary_cloud" {
+  description = "Cloud provider for the secondary cluster (AWS, AZURE, GCP)."
+  type        = string
+  default     = "AWS"
 }
 
 variable "primary_region" {
@@ -29,7 +35,7 @@ variable "primary_region" {
 variable "secondary_region" {
   description = "Region of the secondary (multi-zone) cluster."
   type        = string
-  default     = "northeurope"
+  default     = "eu-west-1"
 }
 
 variable "cku" {

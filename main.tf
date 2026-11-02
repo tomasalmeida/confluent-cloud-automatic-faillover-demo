@@ -14,7 +14,7 @@ resource "confluent_environment" "this" {
 resource "confluent_kafka_cluster" "primary" {
   display_name = "${var.prefix}-primary-sz"
   availability = "SINGLE_ZONE"
-  cloud        = var.cloud
+  cloud        = var.primary_cloud
   region       = var.primary_region
 
   dedicated {
@@ -29,7 +29,7 @@ resource "confluent_kafka_cluster" "primary" {
 resource "confluent_kafka_cluster" "secondary" {
   display_name = "${var.prefix}-secondary-mz"
   availability = "MULTI_ZONE"
-  cloud        = var.cloud
+  cloud        = var.secondary_cloud
   region       = var.secondary_region
 
   dedicated {

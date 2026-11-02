@@ -14,7 +14,7 @@ Terraform for the Confluent Cloud side of [danjrichards/transparent-failover](ht
 
    ┌───────────────────────────┐   cluster link (both directions)   ┌───────────────────────────┐
    │ Primary: Dedicated,       │ ◄────────────────────────────────► │ Secondary: Dedicated,     │
-   │ single-zone, westeurope   │                                    │ multi-zone, northeurope   │
+  │ Azure SZ, westeurope      │                                    │ AWS MZ, eu-west-1         │
    │ topic: purchases          │ ───── auto-created mirror ───────► │ mirror: purchases         │
    └─────────────▲─────────────┘                                    └─────────────▲─────────────┘
                  │                                                                │
@@ -29,7 +29,7 @@ Terraform for the Confluent Cloud side of [danjrichards/transparent-failover](ht
 | Area | Resources |
 | --- | --- |
 | Environment | One environment with Stream Governance Essentials |
-| Clusters | Primary: Dedicated **single-zone** (`westeurope`). Secondary: Dedicated **multi-zone** (`northeurope`). Same CKUs on both. |
+| Clusters | Primary: Azure Dedicated **single-zone** (`westeurope`). Secondary: AWS Dedicated **multi-zone** (`eu-west-1`). Same CKUs on both. |
 | Identities | `dr-link-sa` (CloudClusterAdmin on both clusters), `dr-demo-app-sa` (client), `dr-demo-admin-sa` (EnvironmentAdmin) |
 | API keys | Cluster-scoped keys for the link (the cluster link API rejects Global keys). A Global key for the app (cluster-scoped keys can't fail over). A Cloud API key for the Switchover and Metrics APIs. |
 | RBAC | Client access on both clusters (topic `purchases`, group `dr-demo-consumer`) |
@@ -62,9 +62,10 @@ Set these in `terraform.tfvars` (see [terraform.tfvars.example](terraform.tfvars
 | --- | --- | --- |
 | `confluent_cloud_api_key` / `confluent_cloud_api_secret` | required | Cloud API key Terraform uses (sensitive) |
 | `prefix` | required | Prefix for all resource names, to avoid collisions in the org |
-| `cloud` | `AZURE` | Cloud provider for both clusters (`AWS`, `AZURE`, `GCP`) |
+| `primary_cloud` | `AZURE` | Cloud provider for the primary cluster (`AWS`, `AZURE`, `GCP`) |
+| `secondary_cloud` | `AWS` | Cloud provider for the secondary cluster (`AWS`, `AZURE`, `GCP`) |
 | `primary_region` | `westeurope` | Region of the primary (single-zone) cluster |
-| `secondary_region` | `northeurope` | Region of the secondary (multi-zone) cluster |
+| `secondary_region` | `eu-west-1` | Region of the secondary (multi-zone) cluster |
 | `cku` | `2` | CKUs for **both** clusters. Must be equal and ≥ 2 (the multi-zone minimum) |
 | `deploy_links` | `true` | Create the links, switchover pair and endpoint. `false` creates only clusters, identities and keys. |
 | `environment_name` | `transparent-failover` | Environment display name |

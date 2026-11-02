@@ -4,8 +4,9 @@ confluent_cloud_api_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 prefix = "myname"
 
 # Optional overrides
-# cloud            = "AZURE"
+# primary_cloud    = "AZURE"
+# secondary_cloud  = "AWS"
 # primary_region   = "westeurope"
-# secondary_region = "northeurope"
+# secondary_region = "eu-west-1"
 # cku              = 2
 # deploy_links     = true
